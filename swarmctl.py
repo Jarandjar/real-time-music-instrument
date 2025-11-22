@@ -274,6 +274,99 @@ class SwarmCTL:
         
         return 0
     
+    # ===== CAMPAIGN MANAGEMENT =====
+    
+    def campaign_list(self, args):
+        """List all campaigns"""
+        from agent_campaign_coordinator import CampaignCoordinator
+        coordinator = CampaignCoordinator(db_path=self.db_path)
+        
+        campaigns = coordinator.get_active_campaigns()
+        print(f"\n📋 Active Campaigns ({len(campaigns)}):\n")
+        
+        if not campaigns:
+            print("  No active campaigns")
+            return 0
+        
+        for c in campaigns:
+            print(f"  {c['campaign_id']}: {c['name']}")
+            print(f"    Phase: {c['current_phase']}")
+            print(f"    Goal: {c['goal'][:80]}...")
+            print()
+        
+        return 0
+    
+    def campaign_create(self, args):
+        """Create a new campaign"""
+        from agent_campaign_coordinator import CampaignCoordinator
+        coordinator = CampaignCoordinator(db_path=self.db_path)
+        
+        meta = {'type': args.type}
+        if args.type == 'CODEBASE_OVERHAUL':
+            meta['repo_path'] = args.repo_path
+        
+        campaign_id = coordinator.create_campaign(
+            campaign_id=args.id,
+            name=args.name,
+            goal=args.goal,
+            campaign_type=args.type,
+            meta=meta
+        )
+        
+        print(f"\n✅ Campaign created: {campaign_id}")
+        print(f"   Next: swarmctl campaign generate {campaign_id} --phase mapping")
+        
+        return 0
+    
+    def campaign_status(self, args):
+        """Show detailed campaign status"""
+        from agent_campaign_coordinator import CampaignCoordinator
+        coordinator = CampaignCoordinator(db_path=self.db_path)
+        
+        status = coordinator.get_campaign_status(args.campaign_id)
+        
+        if not status:
+            print(f"❌ Campaign not found: {args.campaign_id}")
+            return 1
+        
+        print(f"\n📊 Campaign Status: {status['campaign_id']}\n")
+        print(f"  Name: {status['name']}")
+        print(f"  Status: {status['status']}")
+        print(f"  Phase: {status['current_phase']}")
+        print(f"  Goal: {status['goal']}")
+        print(f"  Completed: {status['tasks_completed']} tasks")
+        
+        if status['tasks_by_phase']:
+            print(f"\n  Tasks by Phase:")
+            for phase, count in status['tasks_by_phase'].items():
+                print(f"    {phase}: {count}")
+        
+        return 0
+    
+    def campaign_advance(self, args):
+        """Advance campaign to next phase"""
+        from agent_campaign_coordinator import CampaignCoordinator
+        coordinator = CampaignCoordinator(db_path=self.db_path)
+        
+        next_phase = coordinator.advance_phase(args.campaign_id)
+        print(f"\n✅ Advanced to {next_phase}")
+        print(f"   Next: swarmctl campaign generate {args.campaign_id} --phase {next_phase}")
+        
+        return 0
+    
+    def campaign_generate(self, args):
+        """Generate tasks for campaign phase"""
+        from agent_campaign_coordinator import CampaignCoordinator
+        coordinator = CampaignCoordinator(db_path=self.db_path)
+        
+        task_ids = coordinator.generate_phase_tasks(args.campaign_id, args.phase)
+        print(f"\n✅ Generated {len(task_ids)} tasks for {args.campaign_id} / {args.phase}")
+        
+        if task_ids:
+            print(f"\n   Task IDs: {task_ids[:5]}{'...' if len(task_ids) > 5 else ''}")
+        
+        return 0
+    
     # ===== STATUS =====
     
     def show_status(self, args):
@@ -769,6 +862,31 @@ def main():
     gpt_scope.add_argument('--output', help='Write context pack to this file instead of stdout')
     gpt_scope.add_argument('--list-subsystems', action='store_true', help='List available subsystem summaries and exit')
     
+    # Campaign subcommands
+    campaign = subparsers.add_parser('campaign', help='Manage long-running campaigns')
+    campaign_subs = campaign.add_subparsers(dest='subcommand')
+    
+    campaign_list = campaign_subs.add_parser('list', help='List all campaigns')
+    
+    campaign_create = campaign_subs.add_parser('create', help='Create a new campaign')
+    campaign_create.add_argument('--id', required=True, help='Campaign ID')
+    campaign_create.add_argument('--name', required=True, help='Campaign name')
+    campaign_create.add_argument('--goal', required=True, help='Campaign goal')
+    campaign_create.add_argument('--type', required=True, 
+                                choices=['CODEBASE_OVERHAUL', 'KNOWLEDGE_ARCHIVE', 'FITNESS_ARC'],
+                                help='Campaign type')
+    campaign_create.add_argument('--repo-path', default='.', help='Repo path for codebase campaigns')
+    
+    campaign_status = campaign_subs.add_parser('status', help='Show campaign status')
+    campaign_status.add_argument('campaign_id', help='Campaign ID')
+    
+    campaign_advance = campaign_subs.add_parser('advance', help='Advance campaign to next phase')
+    campaign_advance.add_argument('campaign_id', help='Campaign ID')
+    
+    campaign_generate = campaign_subs.add_parser('generate', help='Generate tasks for campaign phase')
+    campaign_generate.add_argument('campaign_id', help='Campaign ID')
+    campaign_generate.add_argument('--phase', required=True, help='Phase to generate tasks for')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -816,6 +934,17 @@ def main():
         return ctl.gpt_chat(args)
     elif args.command == 'gpt-scope':
         return ctl.gpt_scope(args)
+    elif args.command == 'campaign':
+        if args.subcommand == 'list':
+            return ctl.campaign_list(args)
+        elif args.subcommand == 'create':
+            return ctl.campaign_create(args)
+        elif args.subcommand == 'status':
+            return ctl.campaign_status(args)
+        elif args.subcommand == 'advance':
+            return ctl.campaign_advance(args)
+        elif args.subcommand == 'generate':
+            return ctl.campaign_generate(args)
     
     return 0
 

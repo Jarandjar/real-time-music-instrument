@@ -248,6 +248,79 @@ class TaskDiscoveryAgent:
         
         return tasks
     
+    def generate_campaign_tasks(self) -> List[Dict]:
+        """Check for active campaigns and generate tasks"""
+        try:
+            from agent_campaign_coordinator import CampaignCoordinator
+            
+            coordinator = CampaignCoordinator(db_path=self.db_path)
+            campaigns = coordinator.get_active_campaigns()
+            
+            if not campaigns:
+                return []
+            
+            print(f"\n📜 Checking {len(campaigns)} active campaigns...")
+            
+            tasks = []
+            for campaign in campaigns:
+                campaign_id = campaign['campaign_id']
+                phase = campaign['current_phase']
+                
+                # Check if campaign needs more tasks for current phase
+                conn = duckdb.connect(self.db_path)
+                
+                # Count pending campaign tasks
+                task_ids = [str(tid) for tid, in conn.execute("""
+                    SELECT task_id FROM campaign_tasks
+                    WHERE campaign_id = ? AND phase = ?
+                """, [campaign_id, phase]).fetchall()]
+                
+                if task_ids:
+                    placeholders = ','.join(['?'] * len(task_ids))
+                    pending_count = conn.execute(f"""
+                        SELECT COUNT(*) FROM agent_tasks
+                        WHERE task_id IN ({placeholders}) AND status = 'pending'
+                    """, task_ids).fetchone()[0]
+                    
+                    completed_count = conn.execute(f"""
+                        SELECT COUNT(*) FROM agent_tasks
+                        WHERE task_id IN ({placeholders}) AND status = 'completed'
+                    """, task_ids).fetchone()[0]
+                else:
+                    pending_count = 0
+                    completed_count = 0
+                
+                conn.close()
+                
+                print(f"   Campaign '{campaign_id}' / {phase}: {pending_count} pending, {completed_count} completed")
+                
+                conn.close()  # Close before calling coordinator
+                
+                # Generate more tasks if phase is low on pending work
+                if pending_count < 2:
+                    print(f"   ⚡ Generating more {phase} tasks for {campaign_id}")
+                    coordinator.generate_phase_tasks(campaign_id, phase)
+                
+                # Auto-advance if phase is complete (all tasks done)
+                conn2 = duckdb.connect(self.db_path)
+                total_phase_tasks = conn2.execute("""
+                    SELECT COUNT(*)
+                    FROM campaign_tasks
+                    WHERE campaign_id = ? AND phase = ?
+                """, [campaign_id, phase]).fetchone()[0]
+                conn2.close()
+                
+                if total_phase_tasks > 0 and completed_count >= total_phase_tasks and pending_count == 0:
+                    print(f"   🎉 Phase {phase} complete! Advancing campaign...")
+                    next_phase = coordinator.advance_phase(campaign_id)
+                    coordinator.generate_phase_tasks(campaign_id, next_phase)
+            
+            return tasks  # Empty - tasks are inserted by CampaignCoordinator
+            
+        except Exception as e:
+            print(f"   ⚠️  Campaign task generation failed: {e}")
+            return []
+    
     def insert_discovered_tasks(self, tasks: List[Dict]) -> int:
         """Insert discovered tasks into agent_tasks table"""
         if not tasks or not DUCKDB_AVAILABLE:
@@ -317,6 +390,10 @@ class TaskDiscoveryAgent:
         # 5. Generate adaptive tasks based on queue depth
         adaptive_tasks = self.generate_adaptive_tasks()
         discovered_tasks.extend(adaptive_tasks)
+        
+        # 6. Check active campaigns and generate tasks
+        campaign_tasks = self.generate_campaign_tasks()
+        discovered_tasks.extend(campaign_tasks)
         
         # Insert all discovered tasks
         if discovered_tasks:
