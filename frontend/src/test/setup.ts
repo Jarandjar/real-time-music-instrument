@@ -14,6 +14,8 @@ class MockWebSocket {
   onmessage: ((event: MessageEvent) => void) | null = null;
 
   constructor(_url: string) {
+    // Store url to avoid unused variable warning
+    void _url;
     setTimeout(() => {
       if (this.onopen) {
         this.onopen(new Event('open'));
@@ -27,7 +29,8 @@ class MockWebSocket {
   }
 
   send(_data: string) {
-    // Mock send
+    // Mock send - void to indicate intentionally unused
+    void _data;
   }
 
   close() {

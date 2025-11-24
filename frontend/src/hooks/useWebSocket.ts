@@ -28,52 +28,52 @@ export function useWebSocket(): UseWebSocketReturn {
     };
   }, []);
 
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-    const ws = new WebSocket(WS_URL);
-
-    ws.onopen = () => {
-      setIsConnected(true);
-      console.log('WebSocket connected');
-    };
-
-    ws.onclose = () => {
-      setIsConnected(false);
-      console.log('WebSocket disconnected');
-      // Reconnect after 3 seconds
-      reconnectTimeoutRef.current = window.setTimeout(connect, 3000);
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-
-    ws.onmessage = async (event) => {
-      try {
-        const message: WebSocketMessage = JSON.parse(event.data);
-        setLastMessage(message);
-
-        // Handle audio messages
-        if (message.type === 'audio' && message.audio && audioContextRef.current) {
-          const audioBuffer = await base64ToAudioBuffer(
-            message.audio,
-            audioContextRef.current
-          );
-          playAudioBuffer(audioBuffer, audioContextRef.current);
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-
-    wsRef.current = ws;
-  }, []);
-
   // Connect on mount
   useEffect(() => {
+    const connect = () => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        return;
+      }
+
+      const ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        setIsConnected(true);
+        console.log('WebSocket connected');
+      };
+
+      ws.onclose = () => {
+        setIsConnected(false);
+        console.log('WebSocket disconnected');
+        // Reconnect after 3 seconds
+        reconnectTimeoutRef.current = window.setTimeout(connect, 3000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          const message: WebSocketMessage = JSON.parse(event.data);
+          setLastMessage(message);
+
+          // Handle audio messages
+          if (message.type === 'audio' && message.audio && audioContextRef.current) {
+            const audioBuffer = await base64ToAudioBuffer(
+              message.audio,
+              audioContextRef.current
+            );
+            playAudioBuffer(audioBuffer, audioContextRef.current);
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+
+      wsRef.current = ws;
+    };
+
     connect();
 
     return () => {
@@ -82,7 +82,7 @@ export function useWebSocket(): UseWebSocketReturn {
       }
       wsRef.current?.close();
     };
-  }, [connect]);
+  }, []);
 
   const sendMessage = useCallback((message: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

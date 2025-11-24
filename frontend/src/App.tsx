@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { PianoKeyboard } from './components/PianoKeyboard';
 import { Controls } from './components/Controls';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -8,20 +8,19 @@ import './App.css';
 function App() {
   const [instrument, setInstrument] = useState<InstrumentType>('piano');
   const [lastNote, setLastNote] = useState<string>('C4');
-  const [suggestedNote, setSuggestedNote] = useState<string | undefined>();
   const { isConnected, playNote, getSuggestion, lastMessage } = useWebSocket();
 
-  // Handle incoming messages
-  useEffect(() => {
+  // Derive suggested note from lastMessage
+  const suggestedNote = useMemo(() => {
     if (lastMessage?.type === 'suggestion' && lastMessage.suggested_note) {
-      setSuggestedNote(lastMessage.suggested_note);
+      return lastMessage.suggested_note;
     }
+    return undefined;
   }, [lastMessage]);
 
   const handleNotePlay = useCallback(
     (note: string) => {
       setLastNote(note);
-      setSuggestedNote(undefined);
       playNote(note, 0.5, 0.8, instrument);
     },
     [playNote, instrument]
@@ -66,4 +65,3 @@ function App() {
 }
 
 export default App;
-
